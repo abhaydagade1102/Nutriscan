@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NutriScan</title>
+<style>
+:root{--ink:#111;--paper:#fff;--rule:#111;--mut:#555;--hi:#c8102e;--mo:#e08a00;--lo:#2c7a3f}
+@media(prefers-color-scheme:dark){:root{--ink:#f2f2f2;--paper:#161616;--rule:#f2f2f2;--mut:#aaa;--hi:#ff5a6e;--mo:#ffb43c;--lo:#5ec27a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.5 "Helvetica Neue",Arial,sans-serif;padding:24px 16px}
+main{max-width:520px;margin:0 auto;border:3px solid var(--rule);padding:16px 20px}
+h1{font:900 40px/1 "Arial Black",Impact,sans-serif;margin:0;letter-spacing:-1px}
+.sub{margin:4px 0 12px;color:var(--mut)}
+.bar{border-top:10px solid var(--rule);margin:8px 0}
+nav{display:flex;gap:0;border:2px solid var(--rule);margin:12px 0}
+nav button{flex:1;padding:10px;background:none;border:0;color:var(--ink);font:inherit;font-weight:700;cursor:pointer}
+nav button[aria-selected=true]{background:var(--ink);color:var(--paper)}
+button:focus-visible,input:focus-visible{outline:3px solid var(--mo);outline-offset:2px}
+.row{display:flex;gap:8px;margin:8px 0}
+input[type=text]{flex:1;padding:10px;border:2px solid var(--rule);background:var(--paper);color:var(--ink);font:inherit}
+.btn{padding:10px 14px;border:2px solid var(--rule);background:var(--ink);color:var(--paper);font:inherit;font-weight:700;cursor:pointer}
+.file{display:block;border:2px dashed var(--rule);padding:22px;text-align:center;cursor:pointer}
+#out{margin-top:16px}
+.score{display:flex;align-items:baseline;gap:10px;border-bottom:1px solid var(--rule);padding-bottom:6px}
+.score b{font:900 64px/1 "Arial Black",sans-serif}
+table{width:100%;border-collapse:collapse;margin:8px 0}
+td{padding:4px 0;border-bottom:1px solid var(--rule)} td:last-child{text-align:right;font-weight:700}
+.tag{display:inline-block;padding:2px 8px;margin:2px;border:2px solid;font-weight:700;font-size:14px}
+.high{color:var(--hi)}.moderate{color:var(--mo)}.low{color:var(--lo)}
+.err{border-left:6px solid var(--hi);padding:6px 12px}
+img.p{float:right;max-width:90px;margin-left:12px}
+small{color:var(--mut)}
+</style></head><body><main>
+<h1>NutriScan</h1><p class="sub">Check what's in your food.</p><div class="bar"></div>
+<nav role="tablist">
+ <button role="tab" aria-selected="true" data-t="barcode">Barcode</button>
+ <button role="tab" aria-selected="false" data-t="label">Label</button>
+ <button role="tab" aria-selected="false" data-t="food">Fresh food</button>
+</nav>
+<p id="hint" class="sub"></p>
+<div class="row" id="manual"><input type="text" id="code" inputmode="numeric" placeholder="Or type barcode number"><button class="btn" id="go">Look up</button></div>
+<label class="file"><input type="file" id="img" accept="image/*" capture="environment" hidden><span id="fl">Take or choose a photo</span></label>
+<div id="out" aria-live="polite"></div>
+</main>
+<script>
+const H={barcode:"Photograph the barcode on the pack.",label:"Photograph the ingredients list. Text is read on your computer.",food:"Photograph a fruit, vegetable or meal. Nutrition is an estimate."};
+let tab="barcode";const $=s=>document.querySelector(s),out=$("#out");
+function setTab(t){tab=t;document.querySelectorAll("nav button").forEach(b=>b.setAttribute("aria-selected",b.dataset.t===t));
+ $("#hint").textContent=H[t];$("#manual").style.display=t==="barcode"?"flex":"none";out.innerHTML="";}
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>setTab(b.dataset.t));setTab("barcode");
+async function send(fd){out.innerHTML="<p>Analyzing\u2026</p>";
+ try{const r=await fetch("/api/"+tab,{method:"POST",body:fd});const d=await r.json();
+  out.innerHTML=r.ok?render(d):`<p class="err">${esc(d.error)}</p>`}catch(e){out.innerHTML=`<p class="err">Server not reachable. Is app.py running?</p>`}}
+$("#img").onchange=e=>{const f=e.target.files[0];if(!f)return;$("#fl").textContent=f.name;const fd=new FormData();fd.append("image",f);send(fd);e.target.value=""};
+$("#go").onclick=()=>{const c=$("#code").value.trim();if(!c)return;const fd=new FormData();fd.append("code",c);send(fd)};
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const L={"energy-kcal_100g":["Energy","kcal"],fat_100g:["Fat","g"],"saturated-fat_100g":["Saturated fat","g"],carbohydrates_100g:["Carbohydrates","g"],sugars_100g:["Sugars","g"],fiber_100g:["Fibre","g"],proteins_100g:["Protein","g"],salt_100g:["Salt","g"]};
+function render(d){let h=(d.image?`<img class="p" src="${esc(d.image)}" alt="">`:"")+`<h2 style="margin:0">${esc(d.name)}</h2><small>${esc(d.brand||"")} ${d.confidence?`(match ${Math.round(d.confidence*100)}%)`:""}</small>
+<div class="score"><b>${d.score}</b><span><strong>${d.label}</strong><br><small>out of 100 \u00b7 per 100 g</small></span></div>`;
+ if(d.nutriscore)h+=`<p>Nutri-Score ${esc(d.nutriscore.toUpperCase())}${d.nova?` \u00b7 NOVA ${d.nova}`:""}</p>`;
+ if(d.nutrients){h+="<table>"+Object.entries(L).map(([k,[n,u]])=>d.nutrients[k]==null?"":`<tr><td>${n}</td><td>${(+d.nutrients[k]).toFixed(1)} ${u}</td></tr>`).join("")+"</table>"}
+ if(d.additives?.length)h+="<p><strong>Additives found</strong><br>"+d.additives.map(a=>`<span class="tag ${a.risk}">${a.code} ${esc(a.name)} \u2013 ${a.risk}</span>`).join("")+"</p>";
+ else if(d.source!=="Vision AI (estimate)")h+="<p>No flagged additives found.</p>";
+ if(d.ingredients)h+=`<details><summary>Ingredients</summary><p>${esc(d.ingredients)}</p></details>`;
+ if(d.note||d.serving_note)h+=`<p><small>${esc(d.note||d.serving_note)}</small></p>`;
+ return h+`<p><small>Source: ${esc(d.source)}</small></p>`}
+</script></body></html>
